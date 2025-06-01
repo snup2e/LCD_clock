@@ -13,16 +13,17 @@ module digital_clock_lcd #(
     output reg [7:0]  lcd_data
 );
 
-    // 10만배속 전용 내부 틱//
-    reg [17:0] fast_sec_cnt;  // 
+    // 500× 속도용 내부 1초 틱 생성 (100 MHz → 10 ns)
+    // 100 000 000 / 500 = 200 000 클럭 = 2 ms
+    reg [17:0] fast_sec_cnt;  // 2^18=262 144 > 200 000
     reg        fast_tick1s;
     always @(posedge clk or negedge resetn) begin
       if (!resetn) begin
         fast_sec_cnt  <= 0;
         fast_tick1s   <= 0;
-      end else if (fast_sec_cnt == 100-1) begin
+      end else if (fast_sec_cnt == 200_000-1) begin
         fast_sec_cnt  <= 0;
-        fast_tick1s   <= 1;    // 
+        fast_tick1s   <= 1;    // 2 ms마다 1초 틱 → 500×속도
       end else begin
         fast_sec_cnt  <= fast_sec_cnt + 1;
         fast_tick1s   <= 0;
@@ -110,125 +111,100 @@ module digital_clock_lcd #(
         end
     endfunction
   /////////////////////////////////////////////////////////////////////////////
-// 3) FSM 상태 정의 (새로 추가된 S_INIT_DELAY 포함)
-    parameter S_INIT_DELAY = 2'd0;  // 20 ms 대기 상태
-    parameter S_INIT       = 2'd1;  // 기존 초기화(Command) 상태
-    parameter S_WRITE      = 2'd2;  // 문자열 출력 상태
+
+    // 3) FSM 상태 정의
+    parameter S_INIT   = 2'd0;
+    parameter S_WRITE  = 2'd1;
 
     reg [1:0] state;
     reg [2:0] init_cnt;
     reg [4:0] pos;
     reg       line_sel;
-    reg [1:0] e_cnt;
+    reg [1:0] e_cnt;  // 4 ms 구간 내 E 펄스 위치
 
-    // 20 ms Delay를 위한 카운터 (tick1ms가 1 ms 단위로 들어온다고 가정)
-    reg [4:0] init_delay_cnt;  
-
-    // 4) FSM 전이
-    always @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            state           <= S_INIT_DELAY;  // 리셋 후 곧바로 20 ms 대기
-            init_delay_cnt  <= 5'd0;
-            init_cnt        <= 3'd0;
-            pos             <= 5'd0;
-            line_sel        <= 1'b0;
-            e_cnt           <= 2'd0;
-        end else begin
-            // (1) E 펄스 생성: tick1ms(1 ms마다) 카운터 돌려서 e_cnt 생성
-            if (tick1ms) begin
-                if (e_cnt == 2'd3) e_cnt <= 2'd0;
-                else               e_cnt <= e_cnt + 2'd1;
-            end
-
-            // (2) 상태 전이 로직
-            if (tick4ms) begin
-                case (state)
-                    // ─────────────── S_INIT_DELAY (20 ms 대기) ───────────────
-                    S_INIT_DELAY: begin
-                        if (tick1ms) begin
-                            if (init_delay_cnt < 5'd20) begin
-                                init_delay_cnt <= init_delay_cnt + 5'd1;
-                            end else begin
-                                // 20 ms가 경과되면 실제 INIT 단계로 진입
-                                init_delay_cnt <= 5'd0;
-                                state          <= S_INIT;
+    // 4) FSM 전이 (tick4ms마다 상태 변경, tick1ms마다 E 카운터)
+    always @(posedge clk or negedge resetn) 
+    begin
+            if (!resetn) 
+            begin
+                state    <= S_INIT;
+                init_cnt <= 0;
+                pos      <= 0;
+                line_sel <= 0;
+                e_cnt    <= 0;
+            end 
+            else 
+            begin
+                if (tick1ms) 
+                begin
+                    if (e_cnt == 3) e_cnt <= 0;
+                    else            e_cnt <= e_cnt + 1;
+                end
+    
+                if (tick4ms) 
+                begin
+                    case (state)
+                        S_INIT: 
+                            if (init_cnt < 5) init_cnt <= init_cnt + 1;
+                            else 
+                                state <= S_WRITE;
+    
+                        S_WRITE: 
+                            if (pos < 16) pos <= pos + 1;
+                            else 
+                            begin 
+                                pos      <= 0;                                
+                                line_sel <= ~line_sel;                             
+                                state    <= S_WRITE;  
                             end
-                        end
-                    end
-
-                    // ─────────────── S_INIT (기존 init_cmds 전송) ───────────────
-                    S_INIT: begin
-                        if (init_cnt < 3'd5) begin
-                            init_cnt <= init_cnt + 3'd1;
-                        end else begin
-                            state    <= S_WRITE;
-                            pos      <= 5'd0;
-                            line_sel <= 1'b0;
-                        end
-                    end
-
-                    // ─────────────── S_WRITE (문자 출력) ───────────────
-                    S_WRITE: begin
-                        if (pos < 5'd16) begin
-                            pos <= pos + 5'd1;
-                        end else begin
-                            pos      <= 5'd0;
-                            line_sel <= ~line_sel;
-                            // 여전히 S_WRITE에 머무르면서 줄을 토글
-                        end
-                    end
-
-                    default: begin
-                        state <= S_INIT_DELAY;
-                    end
-                endcase
-            end
-        end
-    end
-
-    // 5) 명령·데이터·E 제어 (tick4ms마다 lcd_rs, lcd_data 셋업)
+    
+                        default: state <= S_INIT;
+                     endcase
+                 end
+             end
+        end 
+        
+    // 5) 명령·데이터·E 제어
     always @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-            lcd_rs   <= 1'b0;
-            lcd_data <= 8'd0;
-            lcd_e    <= 1'b0;
+            lcd_rs   <= 0;
+            lcd_data <= 0;
+            lcd_e    <= 0;
         end else begin
-            if (tick4ms) begin
+            if (tick4ms) 
+            begin
                 case (state)
-                    // S_INIT_DELAY: 아무 것도 보내지 않음 → lcd_rs=0, lcd_data=0
-                    S_INIT_DELAY: begin
-                        lcd_rs   <= 1'b0;
-                        lcd_data <= 8'd0;
-                    end
-
-                    // S_INIT: 기존 init_cmds 순서대로 전송
-                    S_INIT: begin
-                        lcd_rs   <= 1'b0;
+                    S_INIT: 
+                    begin
+                        lcd_rs   <= 0;
                         lcd_data <= init_cmds[init_cnt];
                     end
-
-                    // S_WRITE: pos==0 → CMD_SET_LINE1 혹은 CMD_SET_LINE2
-                    //          pos>0  → get_char(line_sel, pos-1)
-                    S_WRITE: begin
-                        if (pos == 5'd0) begin
-                            lcd_rs   <= 1'b0;
+                    
+                    S_WRITE: 
+                    begin
+                        if (pos == 0) 
+                        begin                          
+                            lcd_rs   <= 0;
                             lcd_data <= (line_sel ? CMD_SET_LINE2 : CMD_SET_LINE1);
-                        end else begin
-                            lcd_rs   <= 1'b1;
-                            lcd_data <= get_char(line_sel, pos - 5'd1);
+                        end 
+                        else 
+                        begin
+                            lcd_rs   <= 1;
+                            lcd_data <= get_char(line_sel, pos-1);
                         end
                     end
 
-                    default: begin
-                        lcd_rs   <= 1'b0;
-                        lcd_data <= 8'd0;
+                    default: 
+                    begin                    
+                        lcd_rs   <= 0;
+                        lcd_data <= 0;
                     end
                 endcase
             end
-            // lcd_e 펄스: e_cnt == 1 구간
             lcd_e <= (e_cnt == 2'd1);
         end
     end
+
     // 6) 초기화 명령 목록
     reg [7:0] init_cmds [0:5];
     initial begin
@@ -308,14 +284,3 @@ module digital_clock_lcd #(
     endfunction
 
 endmodule
-
-
-
-
-
-
-
-
-
-
-
