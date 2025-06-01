@@ -1,72 +1,204 @@
-// HD44780 CGROM 기반 문자 코드 사용
-// 100 MHz → 1 ms, 4 ms, 1 s tick
-// 날짜(YYYY/MM/DD)와 시간(hh:mm:ss)를 16×2 LCD에 출력
+`timescale 1ns / 1ps
 
-module digital_clock_lcd #(
-    parameter CNT1MS = 100_000  // 100 MHz → 1 ms
-)(
-    input             clk,
-    input             resetn,
-    output reg        lcd_e,
-    output reg        lcd_rs,
-    output            lcd_rw,
-    output reg [7:0]  lcd_data
-);
+module lcd_display #(parameter cnt1ms = 100000)(
+    input clk,
+    input reset,
+    output lcd_e,
+    output lcd_rs,
+    output lcd_rw,
+    output [7:0] lcd_data
+    );
+    
+    reg   [31:0] cnt_clk;
+    reg    [4:0] cnt_4ms, cnt_100ms, cnt_line;
+    reg          tick_1ms, tick_4ms, tick_100ms,tick_line;
+    reg    [3:0] lcd_routine;
+    reg    [7:0] lcd_data;
+    reg          lcd_e;
+    
+    parameter delay_100ms      = 0;
+    parameter function_set     = 1;
+    parameter entry_mode       = 2;
+    parameter disp_on          = 3;
+    parameter disp_line1       = 4;
+    parameter disp_line2       = 5;
+    parameter display_clear    = 6;
+    parameter start_clear      = 7;
+    
+    parameter address_line1=8'b1000_0000;
+    parameter address_line2=8'b1100_0000;
 
-    // 10만배속 전용 내부 틱//
-    reg [17:0] fast_sec_cnt;  // 
-    reg        fast_tick1s;
-    always @(posedge clk or negedge resetn) begin
-      if (!resetn) begin
-        fast_sec_cnt  <= 0;
-        fast_tick1s   <= 0;
-      end else if (fast_sec_cnt == 100-1) begin
-        fast_sec_cnt  <= 0;
-        fast_tick1s   <= 1;    // 
-      end else begin
-        fast_sec_cnt  <= fast_sec_cnt + 1;
-        fast_tick1s   <= 0;
-      end
-    end
-
-
-    // 항상 쓰기 모드
-    assign lcd_rw = 1'b0;
-
-    // 1) Tick 생성: 1 ms, 4 ms, 1 s
-    reg [31:0] cnt_clk;
-    reg        tick1ms;
-    always @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            cnt_clk <= 0; tick1ms <= 0;
-        end else if (cnt_clk == CNT1MS-1) begin
-            cnt_clk <= 0; tick1ms <= 1;
-        end else begin
-            cnt_clk <= cnt_clk + 1; tick1ms <= 0;
+    
+    
+    /////////////////tick 생성/////////////
+    always @(posedge clk)begin
+        if(!reset)begin
+            cnt_clk<=32'b0;
+            tick_1ms<=1'b0;
+        end
+        else begin
+            if(cnt_clk==cnt1ms-1)begin
+                cnt_clk<=0;
+                tick_1ms<=1;
+            end
+            else begin
+                cnt_clk<=cnt_clk+1;
+                tick_1ms<=0;
+            end
         end
     end
-
-    reg [1:0] t4_cnt;
-    reg       tick4ms;
-    always @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            t4_cnt  <= 0; tick4ms <= 0;
-        end else if (tick1ms) begin
-            if (t4_cnt == 3) begin t4_cnt <= 0; tick4ms <= 1; end
-            else begin t4_cnt <= t4_cnt + 1; tick4ms <= 0; end
-        end else tick4ms <= 0;
+    
+    always @(posedge clk)begin
+        if(!reset)begin
+            cnt_4ms<=0;
+            tick_4ms<=0;
+        end
+        else begin
+            if(tick_1ms)begin
+                if(cnt_4ms==3)begin
+                    cnt_4ms<=0;
+                    tick_4ms<=1;
+                end
+                else begin
+                    cnt_4ms<=cnt_4ms+1;
+                end
+            end
+            else tick_4ms<=0;
+        end
     end
-
-    reg [7:0] cnt1s;
-    reg       tick1s;
-    always @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            cnt1s <= 0; tick1s <= 0;
-        end else if (tick4ms) begin
-            if (cnt1s == 249) begin cnt1s <= 0; tick1s <= 1; end
-            else begin cnt1s <= cnt1s + 1; tick1s <= 0; end
-        end else tick1s <= 0;
+    
+    always @(posedge clk)begin
+        if(!reset)begin
+            cnt_100ms<=0;
+            tick_100ms<=0;
+        end
+        else begin
+            if(lcd_routine==delay_100ms)begin
+                if(tick_4ms)begin
+                    if(cnt_100ms==24)begin
+                        cnt_100ms<=0;
+                        tick_100ms<=1;
+                    end
+                    else begin
+                        cnt_100ms<=cnt_100ms+1;
+                    end
+                end
+            end
+            else tick_100ms<=0;
+        end
     end
+    
+    
+    always @(posedge clk)begin
+        if(!reset)begin
+            cnt_line<=0;
+            tick_line<=0;
+        end
+        else begin
+            if((lcd_routine==disp_line1)||(lcd_routine==disp_line2))begin
+                if(tick_4ms)begin
+                    if(cnt_line==16)begin
+                        cnt_line<=0;
+                        tick_line<=1;
+                    end
+                    else begin
+                        cnt_line<=cnt_line+1;
+                    end
+                end
+                else tick_line<=0;
+            end
+            else begin
+                cnt_line<=0;
+                tick_line<=0;
+            end
+        end
+    end
+    
+    always @(posedge clk)begin
+        if(!reset) lcd_routine<=start_clear;
+        else begin
+            case(lcd_routine)
+                delay_100ms     :  if(tick_100ms)  lcd_routine<=function_set;    //lcd_rs=0
+                function_set    :  if(tick_4ms)    lcd_routine<=entry_mode;      //lcd_rs=0
+                entry_mode      :  if(tick_4ms)    lcd_routine<=disp_on;         //lcd_rs=0
+                disp_on         :  if(tick_4ms)    lcd_routine<=disp_line1;      //lcd_rs=0
+                disp_line1      :  if(tick_line)   lcd_routine<=disp_line2;      //lcd_rs=1
+                disp_line2      :  if(tick_line)   lcd_routine<=disp_line1;      //lcd_rs=1
+                start_clear     :  if(tick_4ms)    lcd_routine<=delay_100ms;     //lcd_rs=0
+            endcase
+        end
+    end
+    
+    assign lcd_rw=0;
+    assign lcd_rs=(cnt_line!=0)&&((lcd_routine==disp_line1)||(lcd_routine==disp_line2));
+    
+    always @(posedge clk)begin
+        if(!reset)begin
+            lcd_data<=8'b0000_0000;
+            lcd_e<=0;
+        end
+        else begin
+            if(tick_1ms)begin
+                case(lcd_routine)
+                    start_clear : begin
+                        lcd_data<=8'b0000_0001;
+                        if(cnt_4ms==1) lcd_e<=1;
+                        else lcd_e<=0;
+                    end
+                    
+                    delay_100ms : begin
+                        lcd_data<=8'b0000_0000;
+                        if(cnt_4ms==1) lcd_e<=1;
+                        else lcd_e<=0;
+                    end
+                    
+                    function_set : begin
+                        lcd_data<=8'b0011_1000;
+                        if(cnt_4ms==1) lcd_e<=1;
+                        else lcd_e<=0;
+                    end
+                    
+                    entry_mode : begin
+                        lcd_data<=8'b0000_0110;
+                        if(cnt_4ms==1) lcd_e<=1;
+                        else lcd_e<=0;
+                    end
+                    
+                    disp_on : begin
+                        lcd_data<=8'b0000_1100;
+                        if(cnt_4ms==1) lcd_e<=1;
+                        else lcd_e<=0;
+                    end
+                    
+                    disp_line1 : begin
+                        if(!cnt_line) lcd_data<=address_line1;
+                        else lcd_data<= get_char(0,cnt_line-1);
+                        
+                        if(cnt_4ms==1) lcd_e<=1;
+                        else lcd_e<=0;
+                    end
+                    
+                    disp_line2 : begin
+                        if(!cnt_line) lcd_data<=address_line2;
+                        else lcd_data<=get_char(1,cnt_line-1);
+                        
+                        if(cnt_4ms==1) lcd_e<=1;
+                        else lcd_e<=0;
+                    end
+
+                    display_clear : begin
+                        lcd_data<=8'b0000_0001;
+                        if(cnt_4ms==1) lcd_e<=1;
+                        else lcd_e<=0;
+                    end
+
+                    
+                endcase
+            end
+        end
+    end
+    
+
 
 /////////////////////// year, date counter ////////////////////
     reg [11:0] year;
@@ -76,8 +208,8 @@ module digital_clock_lcd #(
     reg [5:0]  min;
     reg [5:0]  sec;
 
-    always @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
+    always @(posedge clk or negedge reset) begin
+        if (!reset) begin
             year  <= 12'd2024;
             month <= 5'd1;
             day   <= 8'd1;
@@ -109,127 +241,6 @@ module digital_clock_lcd #(
             endcase
         end
     endfunction
-  /////////////////////////////////////////////////////////////////////////////
-
-    // 3) FSM 상태 정의
-    parameter S_INIT   = 2'd0;
-    parameter S_WRITE  = 2'd1;
-
-    reg [1:0] state;
-    reg [3:0] init_cnt;
-    reg [4:0] pos;
-    reg       line_sel;
-    reg [1:0] e_cnt;  // 4 ms 구간 내 E 펄스 위치
-
-    // 4) FSM 전이 (tick4ms마다 상태 변경, tick1ms마다 E 카운터)
-    always @(posedge clk or negedge resetn) 
-    begin
-            if (!resetn) 
-            begin
-                state    <= S_INIT;
-                init_cnt <= 0;
-                pos      <= 0;
-                line_sel <= 0;
-                e_cnt    <= 0;
-            end 
-            else 
-            begin
-                if (tick1ms) 
-                begin
-                    if (e_cnt == 3) e_cnt <= 0;
-                    else            e_cnt <= e_cnt + 1;
-                end
-    
-                if (tick4ms) 
-                begin
-                    case (state)
-                        S_INIT: 
-                            if (init_cnt < 10) init_cnt <= init_cnt + 1;
-                            else 
-                                state <= S_WRITE;
-    
-                        S_WRITE: 
-                            if (pos < 16) pos <= pos + 1;
-                            else 
-                            begin 
-                                pos      <= 0;                                
-                                line_sel <= ~line_sel;                             
-                                state    <= S_WRITE;  
-                            end
-    
-                        default: state <= S_INIT;
-                     endcase
-                 end
-             end
-        end 
-        
-    // 5) 명령·데이터·E 제어
-    always @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            lcd_rs   <= 0;
-            lcd_data <= 0;
-            lcd_e    <= 0;
-        end else begin
-            if (tick4ms) 
-            begin
-                case (state)
-                    S_INIT: 
-                    begin
-                        lcd_rs   <= 0;
-                        lcd_data <= init_cmds[init_cnt];
-                    end
-                    
-                    S_WRITE: 
-                    begin
-                        if (pos == 0) 
-                        begin                          
-                            lcd_rs   <= 0;
-                            lcd_data <= (line_sel ? CMD_SET_LINE2 : CMD_SET_LINE1);
-                        end 
-                        else 
-                        begin
-                            lcd_rs   <= 1;
-                            lcd_data <= get_char(line_sel, pos-1);
-                        end
-                    end
-
-                    default: 
-                    begin                    
-                        lcd_rs   <= 0;
-                        lcd_data <= 0;
-                    end
-                endcase
-            end
-            lcd_e <= (e_cnt == 2'd1);
-        end
-    end
-
-    // 6) 초기화 명령 목록
-    reg [7:0] init_cmds [0:10];
-    initial begin
-        init_cmds[0] = CMD_DELAY;
-        init_cmds[1] = CMD_DELAY;
-        init_cmds[2] = CMD_DELAY;
-        init_cmds[3] = CMD_DELAY;
-        init_cmds[4] = CMD_DELAY;
-        init_cmds[5] = CMD_FUNCTION_SET;
-        init_cmds[6] = CMD_DISPLAY_OFF;
-        init_cmds[7] = CMD_CLEAR;
-        init_cmds[8] = CMD_ENTRY_MODE;
-        init_cmds[9] = CMD_DISPLAY_ON;
-        init_cmds[10] = CMD_RETURN_HOME;
-    end
-
-    // 7) LCD 커맨드 코드
-    localparam [7:0] CMD_DELAY        = 8'b0000_0000;
-    localparam [7:0] CMD_FUNCTION_SET = 8'b0011_1000;
-    localparam [7:0] CMD_DISPLAY_OFF  = 8'b0000_1000;
-    localparam [7:0] CMD_CLEAR        = 8'b0000_0001;
-    localparam [7:0] CMD_ENTRY_MODE   = 8'b0000_0110;
-    localparam [7:0] CMD_DISPLAY_ON   = 8'b0000_1100;
-    localparam [7:0] CMD_RETURN_HOME  = 8'b0000_0010;
-    localparam [7:0] CMD_SET_LINE1    = 8'b1000_0000;
-    localparam [7:0] CMD_SET_LINE2    = 8'b1100_0000;
 
     // 8) CGROM 문자 코드 상수
     localparam [7:0] CG_SPACE  = 8'h20; // nothing
@@ -287,11 +298,22 @@ module digital_clock_lcd #(
             end
         end
     endfunction
+    
+        // 10만배속 전용 내부 틱//
+    reg [17:0] fast_sec_cnt;  // 
+    reg        fast_tick1s;
+    always @(posedge clk or negedge reset) begin
+      if (!reset) begin
+        fast_sec_cnt  <= 0;
+        fast_tick1s   <= 0;
+      end else if (fast_sec_cnt == 100-1) begin
+        fast_sec_cnt  <= 0;
+        fast_tick1s   <= 1;    // 
+      end else begin
+        fast_sec_cnt  <= fast_sec_cnt + 1;
+        fast_tick1s   <= 0;
+      end
+    end
 
 endmodule
-
-
-
-
-
 
