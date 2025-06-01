@@ -13,8 +13,7 @@ module digital_clock_lcd #(
     output reg [7:0]  lcd_data
 );
 
-    // 500× 속도용 내부 1초 틱 생성 (100 MHz → 10 ns)
-    // 100 000 000 / 500 = 200 000 클럭 = 2 ms
+    // 10만배속 전용 내부 틱//
     reg [17:0] fast_sec_cnt;  // 2^18=262 144 > 200 000
     reg        fast_tick1s;
     always @(posedge clk or negedge resetn) begin
