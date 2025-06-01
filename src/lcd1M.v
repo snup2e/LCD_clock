@@ -14,7 +14,7 @@ module digital_clock_lcd #(
 );
 
     // 10만배속 전용 내부 틱//
-    reg [17:0] fast_sec_cnt;  // 2^18=262 144 > 200 000
+    reg [17:0] fast_sec_cnt;  // 
     reg        fast_tick1s;
     always @(posedge clk or negedge resetn) begin
       if (!resetn) begin
@@ -22,7 +22,7 @@ module digital_clock_lcd #(
         fast_tick1s   <= 0;
       end else if (fast_sec_cnt == 100-1) begin
         fast_sec_cnt  <= 0;
-        fast_tick1s   <= 1;    // 2 ms마다 1초 틱 → 500×속도
+        fast_tick1s   <= 1;    // 
       end else begin
         fast_sec_cnt  <= fast_sec_cnt + 1;
         fast_tick1s   <= 0;
