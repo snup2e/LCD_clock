@@ -22,8 +22,7 @@ module lcd_display #(parameter cnt1ms = 100000)(
     parameter disp_on          = 3;
     parameter disp_line1       = 4;
     parameter disp_line2       = 5;
-    parameter display_clear    = 6;
-    parameter start_clear      = 7;
+    parameter start_clear      = 6;
     
     parameter address_line1=8'b1000_0000;
     parameter address_line2=8'b1100_0000;
@@ -185,13 +184,6 @@ module lcd_display #(parameter cnt1ms = 100000)(
                         if(cnt_4ms==1) lcd_e<=1;
                         else lcd_e<=0;
                     end
-
-                    display_clear : begin
-                        lcd_data<=8'b0000_0001;
-                        if(cnt_4ms==1) lcd_e<=1;
-                        else lcd_e<=0;
-                    end
-
                     
                 endcase
             end
