@@ -1,5 +1,5 @@
 set_property -dict {PACKAGE_PIN R4 IOSTANDARD LVCMOS33} [get_ports clk]
-set_property -dict {PACKAGE_PIN U7 IOSTANDARD LVCMOS33} [get_ports resetn]
+set_property -dict {PACKAGE_PIN U7 IOSTANDARD LVCMOS33} [get_ports reset]
 set_property -dict {PACKAGE_PIN V3 IOSTANDARD LVCMOS33} [get_ports lcd_e]
 set_property -dict {PACKAGE_PIN AA1 IOSTANDARD LVCMOS33} [get_ports lcd_rs]
 set_property -dict {PACKAGE_PIN AB1 IOSTANDARD LVCMOS33} [get_ports lcd_rw]
