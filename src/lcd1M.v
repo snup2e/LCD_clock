@@ -121,8 +121,8 @@ module lcd_display #(parameter cnt1ms = 100000)(
                 function_set    :  if(tick_4ms)    lcd_routine<=entry_mode;      //lcd_rs=0
                 entry_mode      :  if(tick_4ms)    lcd_routine<=disp_on;         //lcd_rs=0
                 disp_on         :  if(tick_4ms)    lcd_routine<=disp_line1;      //lcd_rs=0
-                disp_line1      :  if(tick_line)   lcd_routine<=disp_line2;      //lcd_rs=1
-                disp_line2      :  if(tick_line)   lcd_routine<=disp_line1;      //lcd_rs=1
+                disp_line1      :  if(tick_line)   begin cnt_4ms <=0; lcd_routine<=disp_line2; end    //lcd_rs=1
+                disp_line2      :  if(tick_line)   begin cnt_4ms <=0; lcd_routine<=disp_line1; end   //lcd_rs=1
                 start_clear     :  if(tick_4ms)    lcd_routine<=delay_100ms;     //lcd_rs=0
             endcase
         end
