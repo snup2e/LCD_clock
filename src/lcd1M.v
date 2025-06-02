@@ -32,11 +32,6 @@ module lcd_display #(parameter cnt1ms = 100000)(
     parameter address_line3=8'b1000_0000;
     parameter address_line4=8'b1100_0000;
     
-    `include "data_line1.v"
-    `include "data_line2.v"
-    `include "data_line3.v"
-    `include "data_line4.v"
-    
     always @(posedge clk)begin
         if(!reset)begin
             cnt_clk<=32'b0;
