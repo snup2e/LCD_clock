@@ -11,7 +11,8 @@ module lcd_display #(parameter cnt1ms = 100000)(
     
     reg   [31:0] cnt_clk;
     reg    [4:0] cnt_4ms, cnt_100ms, cnt_line;
-    reg          tick_1ms, tick_4ms, tick_100ms,tick_line;
+    reg   [11:0] cnt_2sec;
+    reg          tick_1ms, tick_4ms, tick_100ms, tick_2sec, tick_line;
     reg    [3:0] lcd_routine;
     reg    [7:0] lcd_data;
     reg          lcd_e;
@@ -22,14 +23,20 @@ module lcd_display #(parameter cnt1ms = 100000)(
     parameter disp_on          = 3;
     parameter disp_line1       = 4;
     parameter disp_line2       = 5;
-    parameter start_clear      = 6;
+    parameter disp_line3       = 6;
+    parameter disp_line4       = 7;
+    parameter start_clear      = 8;
     
     parameter address_line1=8'b1000_0000;
     parameter address_line2=8'b1100_0000;
-
+    parameter address_line3=8'b1000_0000;
+    parameter address_line4=8'b1100_0000;
     
+    `include "data_line1.v"
+    `include "data_line2.v"
+    `include "data_line3.v"
+    `include "data_line4.v"
     
-    /////////////////tick 생성/////////////
     always @(posedge clk)begin
         if(!reset)begin
             cnt_clk<=32'b0;
@@ -87,6 +94,27 @@ module lcd_display #(parameter cnt1ms = 100000)(
         end
     end
     
+/*    always @(posedge clk)begin
+        if(!reset)begin
+            cnt_2sec<=0;
+            tick_2sec<=0;
+        end
+        else begin
+            if(lcd_routine==delay_2sec||lcd_routine==delay_2sec_B)begin
+                if(tick_4ms)begin
+                    if(cnt_2sec==499)begin
+                        cnt_2sec<=0;
+                        tick_2sec<=1;
+                    end
+                    else begin
+                        cnt_2sec<=cnt_2sec+1;
+                    end
+                end
+                else tick_2sec<=0;
+            end
+            else tick_2sec<=0;
+        end
+    end*/
     
     always @(posedge clk)begin
         if(!reset)begin
@@ -94,7 +122,7 @@ module lcd_display #(parameter cnt1ms = 100000)(
             tick_line<=0;
         end
         else begin
-            if((lcd_routine==disp_line1)||(lcd_routine==disp_line2))begin
+            if((lcd_routine==disp_line1)||(lcd_routine==disp_line2)||(lcd_routine==disp_line3)||(lcd_routine==disp_line4))begin
                 if(tick_4ms)begin
                     if(cnt_line==16)begin
                         cnt_line<=0;
@@ -121,15 +149,17 @@ module lcd_display #(parameter cnt1ms = 100000)(
                 function_set    :  if(tick_4ms)    lcd_routine<=entry_mode;      //lcd_rs=0
                 entry_mode      :  if(tick_4ms)    lcd_routine<=disp_on;         //lcd_rs=0
                 disp_on         :  if(tick_4ms)    lcd_routine<=disp_line1;      //lcd_rs=0
-                disp_line1      :  if(tick_4ms && (cnt_line == 16))   begin lcd_routine<=disp_line2; end    //lcd_rs=1
-                disp_line2      :  if(tick_4ms && (cnt_line == 16))   begin lcd_routine<=disp_line1; end   //lcd_rs=1
+                disp_line1      :  if(tick_line)   lcd_routine<=disp_line2;      //lcd_rs=1
+                disp_line2      :  if(tick_line)   lcd_routine<=disp_line3;      //lcd_rs=1
+                disp_line3      :  if(tick_line)   lcd_routine<=disp_line4;      //lcd_rs=1
+                disp_line4      :  if(tick_line)   lcd_routine<=disp_line1;    //lcd_rs=1
                 start_clear     :  if(tick_4ms)    lcd_routine<=delay_100ms;     //lcd_rs=0
             endcase
         end
     end
     
     assign lcd_rw=0;
-    assign lcd_rs=(cnt_line!=0)&&((lcd_routine==disp_line1)||(lcd_routine==disp_line2));
+    assign lcd_rs=(cnt_line!=0)&&((lcd_routine==disp_line1)||(lcd_routine==disp_line2)||(lcd_routine==disp_line3)||(lcd_routine==disp_line4));
     
     always @(posedge clk)begin
         if(!reset)begin
@@ -171,7 +201,7 @@ module lcd_display #(parameter cnt1ms = 100000)(
                     
                     disp_line1 : begin
                         if(!cnt_line) lcd_data<=address_line1;
-                        else lcd_data<= get_char(0,cnt_line-1);
+                        else lcd_data<=get_char(0,cnt_line-1);
                         
                         if(cnt_4ms==1) lcd_e<=1;
                         else lcd_e<=0;
@@ -185,11 +215,46 @@ module lcd_display #(parameter cnt1ms = 100000)(
                         else lcd_e<=0;
                     end
                     
+                    /*delay_2sec : begin
+                        lcd_data<=8'b0000_0000;
+                        if(cnt_4ms==1) lcd_e<=1;
+                        else lcd_e<=0;
+                    end*/
+
+                    disp_line3 : begin
+                        if(!cnt_line) lcd_data<=address_line3;
+                        else lcd_data<=get_char(0,cnt_line-1);
+                        
+                        if(cnt_4ms==1) lcd_e<=1;
+                        else lcd_e<=0;
+                    end
+                    
+                    disp_line4 : begin
+                        if(!cnt_line) lcd_data<=address_line4;
+                        else lcd_data<=get_char(1,cnt_line-1);
+                        
+                        if(cnt_4ms==1) lcd_e<=1;
+                        else lcd_e<=0;
+                    end
+                    
+                    /*delay_2sec_B : begin
+                        lcd_data<=8'b0000_0000;
+                        if(cnt_4ms==1) lcd_e<=1;
+                        else lcd_e<=0;
+                    end*/
+                    
+                   /* display_clear : begin
+                        lcd_data<=8'b0000_0001;
+                        if(cnt_4ms==1) lcd_e<=1;
+                        else lcd_e<=0;
+                    end*/
+
+                    
                 endcase
             end
         end
     end
-    
+
 
 
 /////////////////////// year, date counter ////////////////////
@@ -308,4 +373,3 @@ module lcd_display #(parameter cnt1ms = 100000)(
     end
 
 endmodule
-
